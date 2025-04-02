@@ -1,6 +1,6 @@
 Petunjuk Penggunaan:
 
-git clone 
+git clone https://github.com/cathaleya/auto-tx_tea.git
 
 Instalasi:
 
