@@ -43,8 +43,16 @@ Copy ke wallets.txt
 Run bot
 
 node auto_tx.js
+node burn.js
+
 
 Fitur Bot:
+burn tx
+Sends `0.01 TEA` to `burn()` function automatically  
+✅ Waits for transaction confirmation before proceeding  
+✅ Random delay between `5 - 60 minutes` to simulate organic activity  
+✅ Automatically retries if an error occurs  
+✅ Weekly TEA Distribution from the Pool
 
 Membaca daftar penerima dari file wallets.txt
 
