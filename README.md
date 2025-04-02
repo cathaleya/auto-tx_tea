@@ -1,6 +1,14 @@
 Petunjuk Penggunaan:
 
-git clone
+git clone 
+
+Instalasi:
+
+bash Copy
+npm init -y
+npm install
+npm install chalk figlet ora ethers axios dotenv
+
 Struktur File:
 
 Copy
