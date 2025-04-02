@@ -1,60 +1,3 @@
-// Fungsi untuk melakukan transfer
-async function sendTransfer(recipient, amount) {
-  try {
-    const gasPrice = await getAdjustedGasPrice();
-    const amountWei = ethers.parseEther(amount.toString());
-    
-    console.log(`\n** Mengirim ${amount} ETH ke ${recipient}`);
-    console.log(`* Gas Price: ${ethers.formatUnits(gasPrice, 'gwei')} gwei`);
-    
-    const tx = await senderWallet.sendTransaction({
-      to: recipient,
-      value: amountWei,
-      gasPrice: gasPrice
-    });
-    
-    const txUrl = `${networkConfig.explorerUrl}/tx/${tx.hash}`;
-    console.log(`** TX Hash: ${txUrl}`);
-    
-    // Notifikasi Telegram - TX dikirim
-    await sendTelegramNotification(
-      `** <b>Transfer Initiated</b>\n` +
-      `• From: <code>${senderWallet.address}</code>\n` +
-      `• To: <code>${recipient}</code>\n` +
-      `• Amount: ${amount} ETH\n` +
-      `• Gas: ${ethers.formatUnits(gasPrice, 'gwei')} gwei\n` +
-      `• TX: <a href="${txUrl}">View on Explorer</a>`
-    );
-    
-    const receipt = await tx.wait();
-    console.log(`* Berhasil! Blok: ${receipt.blockNumber}`);
-    console.log(`** Biaya gas: ${ethers.formatEther(receipt.fee)} ETH`);
-    
-    // Notifikasi Telegram - TX berhasil
-    await sendTelegramNotification(
-      `* <b>Transfer Success</b>\n` +
-      `• To: <code>${recipient}</code>\n` +
-      `• Block: ${receipt.blockNumber}\n` +
-      `• Fee: ${ethers.formatEther(receipt.fee)} ETH\n` +
-      `• TX: <a href="${txUrl}">View on Explorer</a>`
-    );
-    
-    return true;
-  } catch (error) {
-    console.error(`** Gagal mengirim ke ${recipient}:`, error.message);
-    
-    // Notifikasi Telegram - TX gagal
-    await sendTelegramNotification(
-      `** <b>Transfer Failed</b>\n` +
-      `• To: <code>${recipient}</code>\n` +
-      `• Error: ${error.message}\n` +
-      `• Action: Please check manually`
-    );
-    
-    return false;
-  }
-}
-
 // Fungsi utama
 async function autoTransfer() {
   try {
@@ -91,33 +34,63 @@ async function autoTransfer() {
       return;
     }
     
-    // Hitung total yang akan dikirim
-    const totalAmount = parseFloat(config.amountToSend) * recipients.length;
+    // Hitung total yang akan dikirim (maksimum 110 penerima per hari)
+    const maxRecipientsPerDay = 110;
+    const recipientsToProcess = recipients.slice(0, maxRecipientsPerDay);
+    const totalAmount = parseFloat(config.amountToSend) * recipientsToProcess.length;
     const totalAmountWei = ethers.parseEther(totalAmount.toString());
     
     if (balance < totalAmountWei) {
-      const msg = `** Saldo tidak cukup untuk mengirim ke ${recipients.length} wallet (Dibutuhkan: ${totalAmount} ETH, Saldo: ${balanceEth} ETH)`;
+      const msg = `** Saldo tidak cukup untuk mengirim ke ${recipientsToProcess.length} wallet (Dibutuhkan: ${totalAmount} ETH, Saldo: ${balanceEth} ETH)`;
       console.log(msg);
       await sendTelegramNotification(msg);
       return;
     }
     
-    // Proses transfer ke setiap penerima
-    for (const recipient of recipients) {
-      await sendTransfer(recipient, config.amountToSend);
+    // Proses transfer ke setiap penerima (maksimum 110)
+    let successfulTransfers = 0;
+    for (const recipient of recipientsToProcess) {
+      const success = await sendTransfer(recipient, config.amountToSend);
+      if (success) {
+        successfulTransfers++;
+      }
       
       // Tunggu 5 detik antara transfer
       await new Promise(resolve => setTimeout(resolve, 5000));
     }
     
-    const endMessage = `\n** <b>All Transfers Completed</b>\n` +
-      `• Total recipients: ${recipients.length}\n` +
+    const endMessage = `\n** <b>Daily Transfers Completed</b>\n` +
+      `• Total recipients attempted: ${recipientsToProcess.length}\n` +
+      `• Successful transfers: ${successfulTransfers}\n` +
       `• Amount per recipient: ${config.amountToSend} ETH\n` +
-      `• Total sent: ${totalAmount} ETH\n` +
-      `• Sender balance after: ${ethers.formatEther(balance - totalAmountWei)} ETH`;
+      `• Total sent: ${successfulTransfers * parseFloat(config.amountToSend)} ETH\n` +
+      `• Sender balance after: ${ethers.formatEther(balance - (BigInt(successfulTransfers) * ethers.parseEther(config.amountToSend)))} ETH\n` +
+      `• Next batch will start after 24 hours`;
     
     console.log(endMessage);
     await sendTelegramNotification(endMessage);
+    
+    // Jika masih ada penerima yang belum diproses, tunggu 24 jam
+    if (recipients.length > maxRecipientsPerDay) {
+      const remainingRecipients = recipients.length - maxRecipientsPerDay;
+      const hoursToWait = 24;
+      
+      console.log(`\n** Menunggu ${hoursToWait} jam untuk batch berikutnya`);
+      console.log(`** Sisa wallet yang akan diproses: ${remainingRecipients}`);
+      
+      await sendTelegramNotification(
+        `** <b>Waiting for next batch</b>\n` +
+        `• Next batch in: ${hoursToWait} hours\n` +
+        `• Remaining recipients: ${remainingRecipients}`
+      );
+      
+      // Tunggu 24 jam (dalam milidetik)
+      await new Promise(resolve => setTimeout(resolve, hoursToWait * 60 * 60 * 1000));
+      
+      // Jalankan kembali proses untuk batch berikutnya
+      console.log(`\n** Memulai batch berikutnya setelah ${hoursToWait} jam`);
+      await autoTransfer();
+    }
     
   } catch (error) {
     console.error("** Error utama:", error.message);
